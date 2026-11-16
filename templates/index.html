@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mi primera web con Go</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <main>
+        <h1>Soy alumno de la UOC</h1>
+
+        <img src="/static/imagen.jpg" alt="Imagen de la aplicación">
+
+        <h2>Formulario de saludo</h2>
+
+        <form method="POST" action="/">
+            <label for="nombre">Escribe tu nombre:</label>
+            <input id="nombre" name="nombre" required>
+            <button type="submit">Enviar</button>
+        </form>
+
+        {{if .Nombre}}
+        <p>Hola, <strong>{{.Nombre}}</strong>. La petición POST se ha procesado correctamente.</p>
+        {{end}}
+    </main>
+</body>
+</html>
