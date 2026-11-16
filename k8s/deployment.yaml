@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web-go-uoc
+  namespace: web-go-uoc
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: web-go-uoc
+  template:
+    metadata:
+      labels:
+        app: web-go-uoc
+    spec:
+      containers:
+        - name: web-go-uoc
+          image: ghcr.io/cristina-taran/web-go-uoc:latest
+          imagePullPolicy: Always
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 2
+            periodSeconds: 5
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
