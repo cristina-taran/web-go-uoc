@@ -15,8 +15,8 @@ spec:
     spec:
       containers:
         - name: web-go-uoc
-          image: ghcr.io/cristina-taran/web-go-uoc:latest
-          imagePullPolicy: Always
+          image: web-go-uoc:latest
+          imagePullPolicy: Never
           ports:
             - name: http
               containerPort: 8080
