@@ -1,0 +1,20 @@
+[Unit]
+Description=Start Minikube once at system startup
+After=network-online.target docker.service
+Wants=network-online.target docker.service
+
+[Service]
+Type=oneshot
+User=@@RUN_AS_USER@@
+Group=@@RUN_AS_USER@@
+Environment=HOME=@@USER_HOME@@
+Environment=MINIKUBE_HOME=@@USER_HOME@@/.minikube
+Environment=KUBECONFIG=@@USER_HOME@@/.kube/config
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=@@MINIKUBE_BIN@@ -p @@MINIKUBE_PROFILE@@ start
+ExecStop=@@MINIKUBE_BIN@@ -p @@MINIKUBE_PROFILE@@ stop
+RemainAfterExit=yes
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target

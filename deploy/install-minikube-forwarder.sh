@@ -1,25 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Install a generic systemd instance forwarding an EC2 port to a Minikube
-# NodePort. Invoke once per port mapping, for example: 80 30080 or 8081 30081.
+# Install one generic EC2-to-Minikube TCP forwarding instance.
 LISTEN_PORT="${1:-}"
 NODE_PORT="${2:-}"
 RUN_AS_USER="${RUN_AS_USER:-ubuntu}"
 MINIKUBE_PROFILE="${MINIKUBE_PROFILE:-minikube}"
 
-if [[ "${EUID}" -ne 0 ]]; then
+if [[ "${EUID}" -ne 0 || $# -ne 2 ]]; then
   echo "Usage: sudo $0 LISTEN_PORT NODE_PORT" >&2
-  exit 1
-fi
-
-if [[ $# -ne 2 ]]; then
-  echo "Usage: sudo $0 LISTEN_PORT NODE_PORT" >&2
-  exit 2
-fi
-
-if [[ ! "${MINIKUBE_PROFILE}" =~ ^[A-Za-z0-9._-]+$ ]]; then
-  echo 'Invalid Minikube profile name.' >&2
   exit 2
 fi
 
@@ -30,6 +19,14 @@ for port in "${LISTEN_PORT}" "${NODE_PORT}"; do
   fi
 done
 
+if [[ ! "${RUN_AS_USER}" =~ ^[a-z_][a-z0-9_-]*[$]?$ ]]; then
+  echo "Invalid Linux user: ${RUN_AS_USER}" >&2
+  exit 2
+fi
+if [[ ! "${MINIKUBE_PROFILE}" =~ ^[A-Za-z0-9._-]+$ ]]; then
+  echo 'Invalid Minikube profile.' >&2
+  exit 2
+fi
 if ! id "${RUN_AS_USER}" >/dev/null 2>&1; then
   echo "User '${RUN_AS_USER}' does not exist." >&2
   exit 1
@@ -40,94 +37,41 @@ if [[ -z "${MINIKUBE_BIN}" ]]; then
   echo 'minikube was not found in PATH.' >&2
   exit 1
 fi
-
 if ! command -v socat >/dev/null 2>&1; then
   apt-get update
   apt-get install -y socat
 fi
 
 USER_HOME="$(getent passwd "${RUN_AS_USER}" | cut -d: -f6)"
-if [[ -z "${USER_HOME}" ]]; then
-  echo "Could not find the home directory for '${RUN_AS_USER}'." >&2
+if [[ -z "${USER_HOME}" || "${USER_HOME}" == *'|'* ]]; then
+  echo "Could not safely determine the home directory for '${RUN_AS_USER}'." >&2
   exit 1
 fi
 
-FORWARDER_PATH=/usr/local/sbin/minikube-nodeport-forward
-START_UNIT=/etc/systemd/system/minikube.service
-FORWARD_UNIT=/etc/systemd/system/minikube-nodeport-forward@.service
-INSTANCE="${LISTEN_PORT}-${NODE_PORT}"
-
-cat >"${FORWARDER_PATH}" <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-export PATH='/usr/local/bin:/usr/bin:/bin'
-
-instance="\${1:-}"
-if [[ "\${instance}" =~ ^([0-9]+)-([0-9]+)$ ]]; then
-  listen_port="\${BASH_REMATCH[1]}"
-  node_port="\${BASH_REMATCH[2]}"
-else
-  echo 'Usage: minikube-nodeport-forward LISTEN_PORT-NODE_PORT' >&2
-  exit 2
-fi
-for port in "\${listen_port}" "\${node_port}"; do
-  if (( port < 1 || port > 65535 )); then
-    echo "Invalid TCP port: \${port}" >&2
-    exit 2
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SYSTEMD_DIR="${SCRIPT_DIR}/systemd"
+for file in minikube.service minikube-nodeport-forward@.service; do
+  if [[ ! -f "${SYSTEMD_DIR}/${file}" ]]; then
+    echo "Missing systemd unit source: ${SYSTEMD_DIR}/${file}" >&2
+    exit 1
   fi
 done
 
-minikube_ip=\$('${MINIKUBE_BIN}' -p '${MINIKUBE_PROFILE}' ip)
-exec /usr/bin/socat "TCP-LISTEN:\${listen_port},bind=0.0.0.0,reuseaddr,fork" "TCP:\${minikube_ip}:\${node_port}"
-EOF
-chmod 0755 "${FORWARDER_PATH}"
+FORWARDER_PATH=/usr/local/sbin/minikube-nodeport-forward
+INSTANCE="${LISTEN_PORT}-${NODE_PORT}"
 
-cat >"${START_UNIT}" <<EOF
-[Unit]
-Description=Minikube cluster
-After=network-online.target docker.service
-Wants=network-online.target docker.service
-
-[Service]
-Type=oneshot
-User=${RUN_AS_USER}
-Group=${RUN_AS_USER}
-Environment=HOME=${USER_HOME}
-Environment=MINIKUBE_HOME=${USER_HOME}/.minikube
-Environment=KUBECONFIG=${USER_HOME}/.kube/config
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
-ExecStart=${MINIKUBE_BIN} -p ${MINIKUBE_PROFILE} start
-ExecStop=${MINIKUBE_BIN} -p ${MINIKUBE_PROFILE} stop
-RemainAfterExit=yes
-TimeoutStartSec=0
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-cat >"${FORWARD_UNIT}" <<EOF
-[Unit]
-Description=Forward EC2 TCP port %i to Minikube NodePort
-Requires=minikube.service
-After=minikube.service
-
-[Service]
-Type=simple
-User=${RUN_AS_USER}
-Group=${RUN_AS_USER}
-Environment=HOME=${USER_HOME}
-Environment=MINIKUBE_HOME=${USER_HOME}/.minikube
-Environment=KUBECONFIG=${USER_HOME}/.kube/config
-Environment=PATH=/usr/local/bin:/usr/bin:/bin
-ExecStart=${FORWARDER_PATH} %i
-Restart=always
-RestartSec=5
-AmbientCapabilities=CAP_NET_BIND_SERVICE
-CapabilityBoundingSet=CAP_NET_BIND_SERVICE
-
-[Install]
-WantedBy=multi-user.target
-EOF
+install -o root -g root -m 0755 "${SCRIPT_DIR}/minikube-nodeport-forward.sh" "${FORWARDER_PATH}"
+sed \
+  -e "s|@@RUN_AS_USER@@|${RUN_AS_USER}|g" \
+  -e "s|@@USER_HOME@@|${USER_HOME}|g" \
+  -e "s|@@MINIKUBE_BIN@@|${MINIKUBE_BIN}|g" \
+  -e "s|@@MINIKUBE_PROFILE@@|${MINIKUBE_PROFILE}|g" \
+  "${SYSTEMD_DIR}/minikube.service" | install -o root -g root -m 0644 /dev/stdin /etc/systemd/system/minikube.service
+sed \
+  -e "s|@@RUN_AS_USER@@|${RUN_AS_USER}|g" \
+  -e "s|@@USER_HOME@@|${USER_HOME}|g" \
+  -e "s|@@MINIKUBE_PROFILE@@|${MINIKUBE_PROFILE}|g" \
+  "${SYSTEMD_DIR}/minikube-nodeport-forward@.service" | install -o root -g root -m 0644 /dev/stdin /etc/systemd/system/minikube-nodeport-forward@.service
 
 systemctl daemon-reload
 systemctl enable --now minikube.service
@@ -136,4 +80,3 @@ systemctl restart "minikube-nodeport-forward@${INSTANCE}.service"
 
 echo "Enabled minikube-nodeport-forward@${INSTANCE}.service"
 echo "EC2 TCP ${LISTEN_PORT} forwards to Minikube NodePort ${NODE_PORT}."
-echo "Check with: sudo systemctl status minikube-nodeport-forward@${INSTANCE}.service --no-pager"
