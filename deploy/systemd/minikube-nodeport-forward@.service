@@ -1,0 +1,22 @@
+[Unit]
+Description=Forward EC2 TCP port %i to a Minikube NodePort
+Requires=minikube.service
+After=minikube.service
+
+[Service]
+Type=simple
+User=@@RUN_AS_USER@@
+Group=@@RUN_AS_USER@@
+Environment=HOME=@@USER_HOME@@
+Environment=MINIKUBE_HOME=@@USER_HOME@@/.minikube
+Environment=KUBECONFIG=@@USER_HOME@@/.kube/config
+Environment=MINIKUBE_PROFILE=@@MINIKUBE_PROFILE@@
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/local/sbin/minikube-nodeport-forward %i
+Restart=always
+RestartSec=5
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target
