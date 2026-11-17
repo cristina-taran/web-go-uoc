@@ -1,23 +1,16 @@
 # EC2 and Minikube deployment
 
-## Multibranch deployment
+## Workflow: test → PR → main
 
-Configure Jenkins as a **Multibranch Pipeline** for this GitHub repository and
-set the script path to `Jenkinsfile`. The pipeline checks out each branch once,
-builds an image tagged with its commit, and deploys only the `test` and `main`
-branches:
+The intended release path is `test` → pull request → `main`:
 
-| Branch | Kubernetes namespace | NodePort | Replicas | Purpose |
-| --- | --- | ---: | ---: | --- |
-| `test` | `web-go-uoc-test` | `30081` | 1 | Isolated test environment |
-| `main` | `web-go-uoc` | `30080` | 2 | Production; EC2 port 80 forwards here |
+1. Push changes to the `test` branch. Jenkins builds the Docker image and deploys it to the isolated Kubernetes namespace `web-go-uoc-test` (NodePort `30081`, one replica).
+2. Validate the test deployment, then open a pull request from `test` to `main`.
+3. After the pull request is reviewed and merged, Jenkins builds the `main` branch and deploys production to namespace `web-go-uoc` (NodePort `30080`, two replicas).
 
-Other branches run the image build but do not deploy. A Multibranch Pipeline
-needs the GitHub Branch Source plugin and a GitHub push webhook/scan trigger so
-Jenkins discovers new branches and starts builds when they change.
+Protect `main` in GitHub so production changes arrive through pull requests. Other branches can build the image but do not deploy. The public EC2 port `80` forwards to production NodePort `30080`; the test NodePort is not exposed by that public forwarder.
 
-The test NodePort is internal to the EC2/Minikube setup; the existing public
-forwarder exposes production on `http://<EC2-public-IP>/` only.
+Configure Jenkins as a **Multibranch Pipeline** for this GitHub repository and set the script path to `Jenkinsfile`. GitHub Branch Source and a GitHub webhook/scan trigger are required so Jenkins discovers branches and starts builds when they change.
 
 ## Install or update the EC2 forwarding service
 
@@ -27,22 +20,18 @@ Run on the EC2 host after Minikube and the Kubernetes application are installed:
 sudo bash deploy/install-minikube-forwarder.sh
 ```
 
-The installer ensures `socat` is present and enables a systemd service that
-starts Minikube and forwards EC2 port `80` to Minikube NodePort `30080`.
+The installer ensures `socat` is present and enables a systemd service that starts Minikube and forwards EC2 port `80` to Minikube NodePort `30080`.
 
 ## Install or update Jenkins' Minikube deploy helper
 
-After checking out the repository on EC2, install the version-controlled helper
-used by the Jenkinsfile:
+After checking out the repository on EC2, install the version-controlled helper used by the Jenkinsfile:
 
 ```bash
 sudo install -o root -g root -m 0755 \
   deploy/web-go-uoc-deploy.sh /usr/local/sbin/web-go-uoc-deploy
 ```
 
-The EC2 sudoers rule allows Jenkins to run only this helper as `ubuntu`. The
-helper accepts the commit tag, Jenkins workspace, namespace, NodePort, and
-replica count. It permits only the two branch targets listed above.
+The EC2 sudoers rule allows Jenkins to run only this helper as `ubuntu`. The helper accepts exactly five arguments: commit tag, Jenkins workspace, namespace, NodePort, and replica count. It permits only the `test` and `main` deployment targets above.
 
 Inspect the systemd forwarding service with:
 
