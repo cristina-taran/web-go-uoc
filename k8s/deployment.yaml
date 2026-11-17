@@ -2,9 +2,9 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: web-go-uoc
-  namespace: web-go-uoc
+  namespace: __NAMESPACE__
 spec:
-  replicas: 2
+  replicas: __REPLICAS__
   selector:
     matchLabels:
       app: web-go-uoc
@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
         - name: web-go-uoc
-          image: web-go-uoc:latest
+          image: web-go-uoc:__IMAGE_TAG__
           imagePullPolicy: Never
           ports:
             - name: http
