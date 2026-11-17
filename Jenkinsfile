@@ -8,9 +8,6 @@ pipeline {
 
     environment {
         IMAGE = 'web-go-uoc'
-        K8S_NAMESPACE = ''
-        NODE_PORT = ''
-        REPLICAS = ''
     }
 
     stages {
@@ -19,21 +16,6 @@ pipeline {
                 checkout scm
                 script {
                     env.IMAGE_TAG = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-
-                    if (env.BRANCH_NAME == 'test') {
-                        env.K8S_NAMESPACE = 'web-go-uoc-test'
-                        env.NODE_PORT = '30081'
-                        env.REPLICAS = '1'
-                        echo 'Branch test will deploy to the isolated test namespace.'
-                    } else if (env.BRANCH_NAME == 'main') {
-                        env.K8S_NAMESPACE = 'web-go-uoc'
-                        env.NODE_PORT = '30080'
-                        env.REPLICAS = '2'
-                        echo 'Branch main will deploy to production.'
-                    } else {
-                        echo "Branch ${env.BRANCH_NAME} will run CI only; it has no deployment target."
-                    }
-
                     echo "Building ${env.IMAGE}:${env.IMAGE_TAG}"
                 }
             }
@@ -58,11 +40,32 @@ pipeline {
                 }
             }
             steps {
-                sh '''#!/bin/sh
-                    set -eu
-                    sudo -n -u ubuntu -H /usr/local/sbin/web-go-uoc-deploy \
-                      "$IMAGE_TAG" "$WORKSPACE" "$K8S_NAMESPACE" "$NODE_PORT" "$REPLICAS"
-                '''
+                script {
+                    def namespace
+                    def nodePort
+                    def replicas
+                    if (env.BRANCH_NAME == 'test') {
+                        namespace = 'web-go-uoc-test'
+                        nodePort = '30081'
+                        replicas = '1'
+                    } else {
+                        namespace = 'web-go-uoc'
+                        nodePort = '30080'
+                        replicas = '2'
+                    }
+
+                    withEnv([
+                        "K8S_NAMESPACE=${namespace}",
+                        "NODE_PORT=${nodePort}",
+                        "REPLICAS=${replicas}"
+                    ]) {
+                        sh '''#!/bin/sh
+                            set -eu
+                            sudo -n -u ubuntu -H /usr/local/sbin/web-go-uoc-deploy \
+                              "$IMAGE_TAG" "$WORKSPACE" "$K8S_NAMESPACE" "$NODE_PORT" "$REPLICAS"
+                        '''
+                    }
+                }
             }
         }
     }
