@@ -2,17 +2,15 @@ pipeline {
     agent any
 
     options {
-        // The checkout is performed explicitly in the Checkout stage.
+        // The Multibranch Pipeline checks out the branch explicitly once.
         skipDefaultCheckout(true)
     }
 
     environment {
         IMAGE = 'web-go-uoc'
-        NAMESPACE = 'web-go-uoc'
-    }
-
-    triggers {
-        githubPush()
+        K8S_NAMESPACE = ''
+        NODE_PORT = ''
+        REPLICAS = ''
     }
 
     stages {
@@ -21,7 +19,22 @@ pipeline {
                 checkout scm
                 script {
                     env.IMAGE_TAG = sh(script: 'git rev-parse --short HEAD', returnStdout: true).trim()
-                    echo "Building local image ${env.IMAGE}:${env.IMAGE_TAG}"
+
+                    if (env.BRANCH_NAME == 'test') {
+                        env.K8S_NAMESPACE = 'web-go-uoc-test'
+                        env.NODE_PORT = '30081'
+                        env.REPLICAS = '1'
+                        echo 'Branch test will deploy to the isolated test namespace.'
+                    } else if (env.BRANCH_NAME == 'main') {
+                        env.K8S_NAMESPACE = 'web-go-uoc'
+                        env.NODE_PORT = '30080'
+                        env.REPLICAS = '2'
+                        echo 'Branch main will deploy to production.'
+                    } else {
+                        echo "Branch ${env.BRANCH_NAME} will run CI only; it has no deployment target."
+                    }
+
+                    echo "Building ${env.IMAGE}:${env.IMAGE_TAG}"
                 }
             }
         }
@@ -37,11 +50,18 @@ pipeline {
             }
         }
 
-        stage('Load and deploy to Minikube') {
+        stage('Deploy to Minikube') {
+            when {
+                anyOf {
+                    branch 'test'
+                    branch 'main'
+                }
+            }
             steps {
                 sh '''#!/bin/sh
                     set -eu
-                    sudo -n -u ubuntu -H /usr/local/sbin/web-go-uoc-deploy "$IMAGE_TAG" "$WORKSPACE"
+                    sudo -n -u ubuntu -H /usr/local/sbin/web-go-uoc-deploy \
+                      "$IMAGE_TAG" "$WORKSPACE" "$K8S_NAMESPACE" "$NODE_PORT" "$REPLICAS"
                 '''
             }
         }
